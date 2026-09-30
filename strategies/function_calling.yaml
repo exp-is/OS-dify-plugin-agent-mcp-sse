@@ -1,6 +1,6 @@
 identity:
   name: mcp_sse_function_calling
-  author: junjiem
+  author: exp-os
   label:
     en_US: FunctionCalling (Support MCP Tools)
     zh_Hans: FunctionCalling (支持 MCP 工具)

@@ -1,9 +1,24 @@
-## Dify 1.0 Plugin Support MCP Tools Agent strategies
+## EXP.OS Agent Strategies (MCP Tools) — Dify plugin
 
-**Author:** [Junjie.M](https://github.com/junjiem)   
+> **This is a fork.** It is maintained by EXP.OS and based on
+> [junjiem/dify-plugin-agent-mcp_sse](https://github.com/junjiem/dify-plugin-agent-mcp_sse),
+> written by [Junjie.M](https://github.com/junjiem). The original design and most of the code are theirs.
+> Please don't report problems with this fork to the upstream project.
+
+**Maintainer:** EXP.OS  
+**Original author:** [Junjie.M](https://github.com/junjiem)  
 **Type:** agent-strategy  
-**Github Repo:** [https://github.com/junjiem/dify-plugin-agent-mcp_sse](https://github.com/junjiem/dify-plugin-agent-mcp_sse)   
-**Github Issues:** [issues](https://github.com/junjiem/dify-plugin-agent-mcp_sse/issues)  
+**Github Repo:** [https://github.com/exp-is/OS-dify-plugin-agent-mcp_sse](https://github.com/exp-is/OS-dify-plugin-agent-mcp_sse)  
+**Upstream:** [https://github.com/junjiem/dify-plugin-agent-mcp_sse](https://github.com/junjiem/dify-plugin-agent-mcp_sse) (forked from 0.2.5)  
+
+### Changes in this fork
+
+- **Usage reporting:** the agent node reports full LLM usage (prompt/completion tokens and prices), not only totals.
+- **Safer MCP client:** tool arguments, results and HTTP bodies are only logged at DEBUG. The SSE endpoint origin is checked before any request is sent to it. SSE calls time out instead of hanging, and server notifications are handled. Request ids are thread-safe.
+- **Tools:** name collisions across servers are resolved correctly, and tool order is deterministic, which helps prompt caching.
+- **Speed:** the Function Calling strategy runs a round's MCP tool calls concurrently.
+- **Defaults:** "MCP Resources as Tools" and "MCP Prompts as Tools" are off by default.
+- **Identity:** the plugin is `exp-os/mcp_agent`. It installs alongside the original `junjiem/mcp_see_agent` and does not upgrade it in place, so existing agent nodes must be switched to the new strategy.
 
 
 ---
@@ -216,6 +231,8 @@ MCP 服务配置，如下示例：
 ### Installing Plugins via GitHub  通过 GitHub 安装插件
 
 Can install the plugin using the GitHub repository address. Visit the Dify platform's plugin management page, choose to install via GitHub, enter the repository address, select version number and package file to complete installation.
+
+For this fork, use `https://github.com/exp-is/OS-dify-plugin-agent-mcp_sse`, pick a release, and select its `.difypkg` file. Releases are built by the `release` workflow when a `v<version>` tag is pushed.
 
 可以通过 GitHub 仓库地址安装该插件。访问 Dify 平台的插件管理页，选择通过 GitHub 安装插件，输入仓库地址后，选择版本号和包文件完成安装。
 

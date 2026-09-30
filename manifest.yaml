@@ -1,13 +1,13 @@
-version: 0.2.5
+version: 0.3.0
 type: plugin
-author: junjiem
-name: mcp_see_agent
+author: exp-os
+name: mcp_agent
 label:
-  en_US: Agent Strategies (Support MCP Tools)
-  zh_Hans: Agent 策略（支持 MCP 工具）
+  en_US: EXP.OS Agent Strategies (MCP Tools)
+  zh_Hans: EXP.OS Agent 策略（支持 MCP 工具）
 description:
-  en_US: Agent strategies collection that provide Function Calling and ReAct (Support MCP SSE / StreamableHTTP fetch and call tools).
-  zh_Hans: 提供 Function Calling 和 ReAct 的 Agent 策略集合（支持 MCP SSE / StreamableHTTP 发现和调用工具）。
+  en_US: Agent strategies collection that provide Function Calling and ReAct (Support MCP SSE / StreamableHTTP fetch and call tools). EXP.OS fork of junjiem/dify-plugin-agent-mcp_sse by Junjie.M.
+  zh_Hans: 提供 Function Calling 和 ReAct 的 Agent 策略集合（支持 MCP SSE / StreamableHTTP 发现和调用工具）。EXP.OS 维护的分支，原作者 Junjie.M（junjiem/dify-plugin-agent-mcp_sse）。
 icon: icon.svg
 resource:
   memory: 268435456

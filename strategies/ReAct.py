@@ -33,7 +33,11 @@ from output_parser.cot_output_parser import CotAgentOutputParser
 from prompt.template import REACT_PROMPT_TEMPLATES
 from strategies.base import (
     FilterHistoryMessageByModelFeaturesMixin,
+    build_actions_summary,
     build_execution_metadata,
+    format_action,
+    is_tool_error,
+    truncate_tool_result,
 )
 from utils.mcp_client import McpClients
 
@@ -53,6 +57,8 @@ class ReActParams(BaseModel):
     mcp_servers_config: str | None
     mcp_resources_as_tools: bool = False
     mcp_prompts_as_tools: bool = False
+    record_actions_in_answer: bool = False
+    max_tool_result_chars: float | str | None = None
     maximum_iterations: int = 3
 
 
@@ -126,6 +132,7 @@ class ReActAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, AgentStrategy
         run_agent_state = True
         llm_usage: dict[str, Optional[LLMUsage]] = {"usage": None}
         final_answer = ""
+        actions: list[str] = []
         empty_answer = "I am thinking about how to help you"  # the default answer when llm didn't response right format
 
         # Init model
@@ -346,8 +353,17 @@ class ReActAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, AgentStrategy
                         agent_scratchpad.append(scratchpad)
                         iteration_step += 1
                         continue
+                    tool_invoke_response = truncate_tool_result(
+                        tool_invoke_response, react_params.max_tool_result_chars
+                    )
                     scratchpad.observation = tool_invoke_response
                     scratchpad.agent_response = tool_invoke_response
+                    if react_params.record_actions_in_answer:
+                        action = format_action(
+                            tool_name, tool_invoke_parameters, is_tool_error(tool_invoke_response)
+                        )
+                        if action:
+                            actions.append(action)
                     yield self.finish_log_message(
                         log=tool_call_log,
                         data={
@@ -407,7 +423,7 @@ class ReActAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, AgentStrategy
         if mcp_clients:
             mcp_clients.close()
 
-        yield self.create_text_message(final_answer)
+        yield self.create_text_message(final_answer + build_actions_summary(actions))
         yield self.create_json_message(
             {
                 "execution_metadata": build_execution_metadata(llm_usage["usage"])

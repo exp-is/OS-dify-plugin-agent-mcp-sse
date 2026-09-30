@@ -54,6 +54,26 @@ parameters:
     help:
       en_US: "Fetch and call the preset MCP Prompts as Tools."
       zh_Hans: "将预设的 MCP Prompts 作为 Tools 返回和调用。"
+  - name: max_tool_result_chars
+    type: number
+    required: false
+    min: 0
+    label:
+      en_US: Max Tool Result Characters
+      zh_Hans: 工具结果最大字符数
+    help:
+      en_US: "Truncate each tool result sent to the model to this many characters (0 or empty = no limit). Results stay in the context for every later round, so large ones slow down the whole turn. 10000 is a reasonable start."
+      zh_Hans: "将发送给模型的每个工具结果截断到此字符数（0 或为空表示不限制）。结果会保留在后续每轮上下文中，过大的结果会拖慢整轮对话。建议从 10000 开始。"
+  - name: record_actions_in_answer
+    type: boolean
+    required: false
+    default: false
+    label:
+      en_US: Record Actions in Answer
+      zh_Hans: 在回答中记录操作
+    help:
+      en_US: "Append a collapsed list of the actions performed (tools other than list_/get_/search_… reads, with ✓/✗) to the final answer. Conversation memory only keeps answer text, so this lets later turns see which actions already happened and not repeat them."
+      zh_Hans: "在最终回答末尾附加已执行操作的折叠列表（除 list_/get_/search_ 等只读工具外，含 ✓/✗）。会话记忆只保留回答文本，这样后续轮次能看到已执行的操作，避免重复执行。"
   - name: instruction
     type: string
     required: false

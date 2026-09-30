@@ -1,4 +1,4 @@
-from typing import Generator
+from typing import Any, Generator
 
 from dify_plugin.entities.model import ModelFeature
 from dify_plugin.entities.model.llm import LLMUsage
@@ -62,3 +62,63 @@ def build_execution_metadata(usage: LLMUsage | None) -> dict:
         "currency": usage.currency,
         "latency": usage.latency,
     }
+
+
+# Tools whose name starts with one of these only read data, so they are not recorded as actions
+READ_ONLY_TOOL_PREFIXES = (
+    "list_", "get_", "search_", "read_", "find_", "fetch_", "query_", "describe_", "count_", "check_",
+    "resource__", "prompt__",
+)
+# Arguments that identify what an action was about, in order of preference
+ACTION_LABEL_KEYS = ("name", "title", "displayName", "label", "slug", "id")
+TOOL_ERROR_PREFIXES = ("tool invoke error", "there is not a tool")
+
+
+def is_tool_error(result: Any) -> bool:
+    return isinstance(result, str) and result.startswith(TOOL_ERROR_PREFIXES)
+
+
+def format_action(tool_name: str, tool_args: Any, failed: bool) -> str | None:
+    """
+    One line describing a tool call that changed something, or None for read-only tools.
+    Only a short identifying argument is kept, never the full arguments.
+    """
+    if tool_name.startswith(READ_ONLY_TOOL_PREFIXES):
+        return None
+    label = ""
+    if isinstance(tool_args, dict):
+        for key in ACTION_LABEL_KEYS:
+            value = tool_args.get(key)
+            if isinstance(value, (str, int)) and str(value).strip():
+                value = str(value).strip().replace("\n", " ")
+                label = f' "{value[:40]}{"…" if len(value) > 40 else ""}"'
+                break
+    return f"{tool_name}{label} {'✗ failed' if failed else '✓'}"
+
+
+def build_actions_summary(actions: list[str]) -> str:
+    """
+    Block appended to the final answer. Dify's conversation memory keeps only the answer text,
+    not tool calls, so without it the next turn cannot tell which actions already happened.
+    """
+    if not actions:
+        return ""
+    lines = "\n".join(f"- {action}" for action in actions)
+    return f"\n\n<details>\n<summary>Actions done</summary>\n\n{lines}\n\n</details>"
+
+
+def truncate_tool_result(result: Any, max_chars: Any) -> Any:
+    """
+    Cap a tool result sent back to the model. The result stays in the context for every later
+    round of the turn, so one large result slows down and costs every following LLM call.
+    """
+    try:
+        max_chars = int(max_chars or 0)  # an empty number field can arrive as "" or a float
+    except (TypeError, ValueError):
+        max_chars = 0
+    if max_chars <= 0 or not isinstance(result, str) or len(result) <= max_chars:
+        return result
+    return (
+        f"{result[:max_chars]}\n\n[truncated: showing {max_chars} of {len(result)} characters. "
+        f"Ask for a smaller page or a more specific query if you need the rest.]"
+    )

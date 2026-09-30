@@ -54,24 +54,6 @@ parameters:
     help:
       en_US: "Fetch and call the preset MCP Prompts as Tools."
       zh_Hans: "将预设的 MCP Prompts 作为 Tools 返回和调用。"
-  - name: mcp_tools_include
-    type: string
-    required: false
-    label:
-      en_US: MCP Tools to Include
-      zh_Hans: 包含的 MCP 工具
-    help:
-      en_US: "Only expose MCP tools whose name matches one of these patterns (comma or newline separated, * wildcards, e.g. list_*, create_plan). Empty = all tools. Every LLM round sends all tool definitions, so fewer tools make each round faster and cheaper."
-      zh_Hans: "只提供名称匹配这些模式的 MCP 工具（逗号或换行分隔，支持 * 通配符，例如 list_*, create_plan）。为空表示全部工具。每轮 LLM 调用都会发送全部工具定义，工具越少每轮越快越省。"
-  - name: mcp_tools_exclude
-    type: string
-    required: false
-    label:
-      en_US: MCP Tools to Exclude
-      zh_Hans: 排除的 MCP 工具
-    help:
-      en_US: "Hide MCP tools whose name matches one of these patterns (same format as the include list, applied after it), e.g. delete_*."
-      zh_Hans: "隐藏名称匹配这些模式的 MCP 工具（格式同包含列表，在其之后应用），例如 delete_*。"
   - name: max_tool_result_chars
     type: number
     required: false

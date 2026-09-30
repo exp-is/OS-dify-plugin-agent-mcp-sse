@@ -37,7 +37,6 @@ from strategies.base import (
     FilterHistoryMessageByModelFeaturesMixin,
     build_actions_summary,
     build_execution_metadata,
-    filter_mcp_tools,
     format_action,
     is_tool_error,
     truncate_tool_result,
@@ -54,8 +53,6 @@ class FunctionCallingParams(BaseModel):
     mcp_resources_as_tools: bool = False
     mcp_prompts_as_tools: bool = False
     record_actions_in_answer: bool = False
-    mcp_tools_include: str | None = None
-    mcp_tools_exclude: str | None = None
     max_tool_result_chars: float | str | None = None
     maximum_iterations: int = 3
 
@@ -108,9 +105,7 @@ class FunctionCallingAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, Age
             except orjson.JSONDecodeError as e:
                 raise ValueError(f"mcp_servers_config must be a valid JSON string: {e}")
             mcp_clients = McpClients(servers_config, mcp_resources_as_tools, mcp_prompts_as_tools)
-            mcp_tools = filter_mcp_tools(
-                mcp_clients.fetch_tools(), fc_params.mcp_tools_include, fc_params.mcp_tools_exclude
-            )
+            mcp_tools = mcp_clients.fetch_tools()
             mcp_tool_instances = {tool.get("name"): tool for tool in mcp_tools} if mcp_tools else {}
 
         # convert tools into ModelRuntime Tool format

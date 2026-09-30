@@ -2,11 +2,10 @@ import logging
 import re
 import uuid
 from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor, as_completed, Executor, Future, wait
+from concurrent.futures import ThreadPoolExecutor, wait
 from enum import Enum
-from itertools import chain
-from threading import Event, Thread, Lock
-from typing import Any, Iterator
+from threading import Condition, Event, Thread, Lock
+from typing import Any, Callable, Iterator
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -32,10 +31,12 @@ class McpClient(ABC):
         self.headers = headers
         self.timeout = timeout
         self.id_counter = 0
+        self._id_lock = Lock()
 
     def _get_next_id(self):
-        self.id_counter += 1
-        return self.id_counter
+        with self._id_lock:
+            self.id_counter += 1
+            return self.id_counter
 
     @abstractmethod
     def close(self) -> None:
@@ -65,7 +66,8 @@ class McpClient(ABC):
                 return []
             raise Exception(f"{self.name} - MCP Server tools/list error: {error}")
         tools = response.get("result", {}).get("tools", [])
-        logger.info(f"{self.name} - MCP Server tools/list: {tools}")
+        logger.info(f"{self.name} - MCP Server tools/list: {len(tools)} tools")
+        logger.debug(f"{self.name} - MCP Server tools/list: {tools}")
         return tools
 
     def call_tool(self, name: str, arguments: dict) -> list[dict]:
@@ -83,7 +85,7 @@ class McpClient(ABC):
             error = response["error"]
             raise Exception(f"{self.name} - MCP Server tools/call error: {error}")
         content = response.get("result", {}).get("content", [])
-        logger.info(f"{self.name} - MCP Server tools/call: {content}")
+        logger.debug(f"{self.name} - MCP Server tools/call: {content}")
         return content
 
     def list_resources(self) -> list[dict]:
@@ -102,7 +104,7 @@ class McpClient(ABC):
                 return []
             raise Exception(f"{self.name} - MCP Server resources/list error: {error}")
         resources = response.get("result", {}).get("resources", [])
-        logger.info(f"{self.name} - MCP Server resources/list: {resources}")
+        logger.debug(f"{self.name} - MCP Server resources/list: {resources}")
         return resources
 
     def read_resource(self, uri: str) -> list[dict]:
@@ -119,7 +121,7 @@ class McpClient(ABC):
             error = response["error"]
             raise Exception(f"{self.name} - MCP Server resources/read error: {error}")
         contents = response.get("result", {}).get("contents", [])
-        logger.info(f"{self.name} - MCP Server resources/read: {contents}")
+        logger.debug(f"{self.name} - MCP Server resources/read: {contents}")
         return contents
 
     def list_resources_templates(self) -> list[dict]:
@@ -137,7 +139,7 @@ class McpClient(ABC):
                 return []
             raise Exception(f"{self.name} - MCP Server resources/templates/list error: {error}")
         resources = response.get("result", {}).get("resourceTemplates", [])
-        logger.info(f"{self.name} - MCP Server resources/templates/list: {resources}")
+        logger.debug(f"{self.name} - MCP Server resources/templates/list: {resources}")
         return resources
 
     def list_prompts(self) -> list[dict]:
@@ -156,7 +158,7 @@ class McpClient(ABC):
                 return []
             raise Exception(f"{self.name} - MCP Server prompts/list error: {error}")
         prompts = response.get("result", {}).get("prompts", [])
-        logger.info(f"{self.name} - MCP Server prompts/list: {prompts}")
+        logger.debug(f"{self.name} - MCP Server prompts/list: {prompts}")
         return prompts
 
     def get_prompt(self, name: str, arguments: dict) -> list[dict]:
@@ -174,7 +176,7 @@ class McpClient(ABC):
             error = response["error"]
             raise Exception(f"{self.name} - MCP Server prompts/get error: {error}")
         messages = response.get("result", {}).get("messages", [])
-        logger.info(f"{self.name} - MCP Server prompts/get: {messages}")
+        logger.debug(f"{self.name} - MCP Server prompts/get: {messages}")
         return messages
 
 
@@ -193,7 +195,8 @@ class McpSseClient(McpClient):
         self.endpoint_url = None
         self.client = httpx.Client(headers=headers, timeout=httpx.Timeout(timeout, read=sse_read_timeout))
         self.message_dict = {}
-        self.response_ready = Event()
+        self._message_cond = Condition()
+        self._listener_stopped = Event()
         self.should_stop = Event()
         self._listen_thread = None
         self._connected = Event()
@@ -223,27 +226,38 @@ class McpSseClient(McpClient):
                         break
                     match sse.event:
                         case "endpoint":
-                            self.endpoint_url = urljoin(self.url, sse.data)
-                            logger.info(f"{self.name} - Received endpoint URL: {self.endpoint_url}")
-                            self._connected.set()
+                            endpoint_url = urljoin(self.url, sse.data)
                             url_parsed = urlparse(self.url)
-                            endpoint_parsed = urlparse(self.endpoint_url)
+                            endpoint_parsed = urlparse(endpoint_url)
+                            # Check before publishing the endpoint, so no request (and its headers)
+                            # is ever sent to a foreign origin
                             if (url_parsed.netloc != endpoint_parsed.netloc
                                     or url_parsed.scheme != endpoint_parsed.scheme):
-                                error_msg = f"{self.name} - Endpoint origin does not match connection origin: {self.endpoint_url}"
+                                error_msg = f"{self.name} - Endpoint origin does not match connection origin: {endpoint_url}"
                                 logger.error(error_msg)
                                 raise ValueError(error_msg)
+                            self.endpoint_url = endpoint_url
+                            logger.info(f"{self.name} - Received endpoint URL: {self.remove_request_params(self.endpoint_url)}")
+                            self._connected.set()
                         case "message":
                             message = orjson.loads(sse.data)
                             logger.debug(f"{self.name} - Received server message: {message}")
-                            self.message_dict[message["id"]] = message
-                            self.response_ready.set()
+                            if "id" not in message:
+                                # Notifications have no id and never answer a request
+                                continue
+                            with self._message_cond:
+                                self.message_dict[message["id"]] = message
+                                self._message_cond.notify_all()
                         case _:
                             logger.warning(f"{self.name} - Unknown SSE event: {sse.event}")
         except Exception as e:
             self._thread_exception = e
             self._error_event.set()
             self._connected.set()
+        finally:
+            with self._message_cond:
+                self._listener_stopped.set()
+                self._message_cond.notify_all()
 
     def send_message(self, data: dict) -> dict:
         if not self.endpoint_url:
@@ -264,19 +278,26 @@ class McpSseClient(McpClient):
         if not response.is_success:
             raise ValueError(
                 f"{self.name} - MCP Server response: {response.status_code} {response.reason_phrase} ({response.content})")
-        if "id" in data:
-            message_id = data["id"]
+        if "id" not in data:
+            return {}
+        message_id = data["id"]
+        with self._message_cond:
             while True:
-                self.response_ready.wait()
-                self.response_ready.clear()
-                if message_id in self.message_dict:
-                    logger.info(f"message_id: {message_id}")
-                    message = self.message_dict.pop(message_id, None)
-                    logger.info(f"message: {message}")
-                    if message and message.get("method") == "ping":
-                        continue
-                    return message
-        return {}
+                if not self._message_cond.wait_for(
+                        lambda: message_id in self.message_dict or self._listener_stopped.is_set(),
+                        timeout=self.sse_read_timeout,
+                ):
+                    raise TimeoutError(
+                        f"{self.name} - MCP Server did not respond to message {message_id} "
+                        f"within {self.sse_read_timeout}s")
+                message = self.message_dict.pop(message_id, None)
+                if message is None:
+                    raise ConnectionError(
+                        f"{self.name} - MCP Server SSE connection closed before responding: {self._thread_exception}")
+                logger.debug(f"message: {message}")
+                if message.get("method") == "ping":
+                    continue
+                return message
 
     def connect(self) -> None:
         self._listen_thread = Thread(target=self._listen_messages, daemon=True)
@@ -364,10 +385,10 @@ class McpStreamableHttpClient(McpClient):
         if not response.is_success:
             raise ValueError(
                 f"{self.name} - MCP Server response: {response.status_code} {response.reason_phrase} ({response.content})")
-        logger.info(f"response headers: {response.headers}")
+        logger.debug(f"response headers: {response.headers}")
         if "mcp-session-id" in response.headers:
             self.session_id = response.headers.get("mcp-session-id")
-        logger.info(f"response content: {response.content}")
+        logger.debug(f"response content: {response.content}")
         if not response.content:
             return {}
         message = {}
@@ -383,7 +404,7 @@ class McpStreamableHttpClient(McpClient):
             message = (response.json() if response.content else None) or {}
         else:
             raise Exception(f"{self.name} - Unsupported Content-Type: {content_type}")
-        logger.info(f"message: {message}")
+        logger.debug(f"message: {message}")
         return message
 
     def initialize(self):
@@ -470,8 +491,7 @@ class McpClients:
             sse_read_timeout=config.get("sse_read_timeout", 50),
         )
 
-    def _iter_tools(self, server_name: str, client: McpClient) -> Iterator[dict]:
-        tools = client.list_tools()
+    def _iter_tools(self, server_name: str, tools: list[dict]) -> Iterator[dict]:
         for tool in tools:
             name = tool["name"]
             with self._tool_actions_lock:
@@ -483,12 +503,10 @@ class McpClients:
                     action_type=ActionType.TOOL,
                     action_feature=tool,
                 )
-            yield tool
+            yield {**tool, "name": name}
 
-    def _iter_resources(self, server_name: str, client: McpClient) -> Iterator[dict]:
-        resources = client.list_resources()
-        resources_templates = client.list_resources_templates()
-        for resource in resources + resources_templates:
+    def _iter_resources(self, server_name: str, resources: list[dict]) -> Iterator[dict]:
+        for resource in resources:
             resource_name = resource["name"]
             name = (re.sub(r'[^a-zA-Z0-9 _-]', '', resource_name)
                     .replace(' ', '_').lower())
@@ -548,8 +566,7 @@ class McpClients:
             }
             yield tool
 
-    def _iter_prompts(self, server_name: str, client: McpClient) -> Iterator[dict]:
-        prompts = client.list_prompts()
+    def _iter_prompts(self, server_name: str, prompts: list[dict]) -> Iterator[dict]:
         for prompt in prompts:
             prompt_name = prompt["name"]
             name = f"prompt__{prompt_name}"
@@ -590,23 +607,34 @@ class McpClients:
             }
             yield tool
 
-    def _iter_all_tools_futures(self, server_name: str, client: McpClient, executor: Executor) -> Iterator[Future]:
-        yield executor.submit(lambda: list(self._iter_tools(server_name, client)))
+    def _fetchers(self, client: McpClient) -> list[tuple[Callable, Callable[[], list[dict]]]]:
+        """(register, fetch) function pairs for one server"""
+        fetchers = [(self._iter_tools, client.list_tools)]
         if self._resources_as_tools:
-            yield executor.submit(lambda: list(self._iter_resources(server_name, client)))
+            fetchers.append((self._iter_resources, lambda: client.list_resources() + client.list_resources_templates()))
         if self._prompts_as_tools:
-            yield executor.submit(lambda: list(self._iter_prompts(server_name, client)))
+            fetchers.append((self._iter_prompts, client.list_prompts))
+        return fetchers
 
     def fetch_tools(self) -> list[dict]:
         try:
             with ThreadPoolExecutor(max_workers=10) as executor:
-                futures = tuple(chain.from_iterable((
-                    self._iter_all_tools_futures(server_name=server_name, client=client, executor=executor)
+                # Fetch in parallel, but register in config order: tool names and their order
+                # stay the same across runs, so name collisions resolve the same way and the
+                # prompt prefix stays cacheable
+                fetches = [
+                    (server_name, register, executor.submit(fetch))
                     for server_name, client in self._clients.items()
-                )))
-                all_tools = list(chain.from_iterable(future.result() for future in as_completed(futures)))
+                    for register, fetch in self._fetchers(client)
+                ]
+                all_tools = [
+                    tool
+                    for server_name, register, future in fetches
+                    for tool in register(server_name, future.result())
+                ]
 
-                logger.info(f"Fetching tools: {all_tools}")
+                logger.info(f"Fetching tools: {[tool['name'] for tool in all_tools]}")
+                logger.debug(f"Fetching tools: {all_tools}")
                 return all_tools
         except Exception as e:
             raise Exception(f"Error fetching tools: {str(e)}")
@@ -618,7 +646,8 @@ class McpClients:
             raise Exception(f"There is not a tool named {tool_name!r}")
         tool_action = self._tool_actions[tool_name]
         server_name = tool_action.server_name
-        logger.info(f"Executing tool! server name: {server_name}, tool name: {tool_name}, tool arguments: {tool_args}")
+        logger.info(f"Executing tool! server name: {server_name}, tool name: {tool_name}")
+        logger.debug(f"Tool arguments: {tool_args}")
         if server_name not in self._clients:
             raise Exception(f"There is not a MCP Server named {server_name!r}")
         client = self._clients[server_name]
@@ -626,7 +655,7 @@ class McpClients:
         try:
             tool_contents = []
             if action_type == ActionType.TOOL:
-                tool_contents = client.call_tool(tool_name, tool_args)
+                tool_contents = client.call_tool(tool_action.action_feature["name"], tool_args)
             elif action_type in [ActionType.RESOURCE, ActionType.RESOURCE_TEMPLATE]:
                 if action_type == ActionType.RESOURCE:
                     resource = tool_action.action_feature
@@ -670,7 +699,7 @@ class McpClients:
                 })
             else:
                 raise Exception(f"Unsupported Action type: {action_type}")
-            logger.info(f"Executing tool: {tool_contents}")
+            logger.debug(f"Executing tool: {tool_contents}")
             return tool_contents
         except Exception as e:
             raise Exception(f"Error executing tool: {str(e)}")

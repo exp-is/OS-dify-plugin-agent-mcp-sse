@@ -31,7 +31,10 @@ from pydantic import BaseModel
 
 from output_parser.cot_output_parser import CotAgentOutputParser
 from prompt.template import REACT_PROMPT_TEMPLATES
-from strategies.base import FilterHistoryMessageByModelFeaturesMixin
+from strategies.base import (
+    FilterHistoryMessageByModelFeaturesMixin,
+    build_execution_metadata,
+)
 from utils.mcp_client import McpClients
 
 
@@ -407,17 +410,7 @@ class ReActAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, AgentStrategy
         yield self.create_text_message(final_answer)
         yield self.create_json_message(
             {
-                "execution_metadata": {
-                    LogMetadata.TOTAL_PRICE: llm_usage["usage"].total_price
-                    if llm_usage["usage"] is not None
-                    else 0,
-                    LogMetadata.CURRENCY: llm_usage["usage"].currency
-                    if llm_usage["usage"] is not None
-                    else "",
-                    LogMetadata.TOTAL_TOKENS: llm_usage["usage"].total_tokens
-                    if llm_usage["usage"] is not None
-                    else 0,
-                }
+                "execution_metadata": build_execution_metadata(llm_usage["usage"])
             }
         )
 

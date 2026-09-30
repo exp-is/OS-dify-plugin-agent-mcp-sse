@@ -35,8 +35,10 @@ from strategies.base import (
     FilterHistoryMessageByModelFeaturesMixin,
     build_actions_summary,
     build_execution_metadata,
+    filter_mcp_tools,
     format_action,
     is_tool_error,
+    truncate_tool_result,
 )
 from utils.mcp_client import McpClients
 
@@ -57,6 +59,9 @@ class ReActParams(BaseModel):
     mcp_resources_as_tools: bool = False
     mcp_prompts_as_tools: bool = False
     record_actions_in_answer: bool = False
+    mcp_tools_include: str | None = None
+    mcp_tools_exclude: str | None = None
+    max_tool_result_chars: float | str | None = None
     maximum_iterations: int = 3
 
 
@@ -168,7 +173,9 @@ class ReActAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, AgentStrategy
             except orjson.JSONDecodeError as e:
                 raise ValueError(f"mcp_servers_config must be a valid JSON string: {e}")
             mcp_clients = McpClients(servers_config, mcp_resources_as_tools, mcp_prompts_as_tools)
-            mcp_tools = mcp_clients.fetch_tools()
+            mcp_tools = filter_mcp_tools(
+                mcp_clients.fetch_tools(), react_params.mcp_tools_include, react_params.mcp_tools_exclude
+            )
             mcp_tool_instances = {tool.get("name"): tool for tool in mcp_tools} if mcp_tools else {}
 
         react_params.model.completion_params = (
@@ -351,6 +358,9 @@ class ReActAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, AgentStrategy
                         agent_scratchpad.append(scratchpad)
                         iteration_step += 1
                         continue
+                    tool_invoke_response = truncate_tool_result(
+                        tool_invoke_response, react_params.max_tool_result_chars
+                    )
                     scratchpad.observation = tool_invoke_response
                     scratchpad.agent_response = tool_invoke_response
                     if react_params.record_actions_in_answer:

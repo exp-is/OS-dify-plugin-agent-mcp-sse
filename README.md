@@ -19,6 +19,8 @@
 - **Speed:** the Function Calling strategy runs a round's MCP tool calls concurrently.
 - **Defaults:** "MCP Resources as Tools" and "MCP Prompts as Tools" are off by default.
 - **Tool failures:** an MCP result with `isError: true` is now reported to the model as a failed call instead of a normal result.
+- **MCP tool filter (opt-in):** "MCP Tools to Include / Exclude" take glob patterns (`list_*, create_plan`). Every LLM round sends all tool definitions, so exposing fewer tools makes each round smaller and faster.
+- **Max Tool Result Characters (opt-in):** truncates large tool results with a note, since they stay in the context for every later round of the turn.
 - **Record Actions in Answer (opt-in):** adds a collapsed "Actions done" list (✓/✗) to the final answer. Dify's conversation memory keeps only answer text, not tool calls, so without it the agent can't tell on later turns which actions already happened and may repeat them.
 - **Identity:** the plugin is `exp-os/mcp_agent`. It installs alongside the original `junjiem/mcp_see_agent` and does not upgrade it in place, so existing agent nodes must be switched to the new strategy.
 

@@ -1,3 +1,5 @@
+import fnmatch
+import re
 from typing import Any, Generator
 
 from dify_plugin.entities.model import ModelFeature
@@ -105,3 +107,38 @@ def build_actions_summary(actions: list[str]) -> str:
         return ""
     lines = "\n".join(f"- {action}" for action in actions)
     return f"\n\n<details>\n<summary>Actions done</summary>\n\n{lines}\n\n</details>"
+
+
+def _patterns(value: str | None) -> list[str]:
+    return [p.strip() for p in re.split(r"[,\n]", value or "") if p.strip()]
+
+
+def filter_mcp_tools(tools: list[dict], include: str | None, exclude: str | None) -> list[dict]:
+    """
+    Keep only the MCP tools whose name matches an include pattern (all when empty) and no exclude
+    pattern. Patterns are comma or newline separated shell-style globs, e.g. "list_*, create_plan".
+    Every LLM round sends all tool definitions, so fewer tools means smaller, faster requests.
+    """
+    include_patterns, exclude_patterns = _patterns(include), _patterns(exclude)
+    return [
+        tool for tool in tools
+        if (not include_patterns or any(fnmatch.fnmatchcase(tool["name"], p) for p in include_patterns))
+        and not any(fnmatch.fnmatchcase(tool["name"], p) for p in exclude_patterns)
+    ]
+
+
+def truncate_tool_result(result: Any, max_chars: Any) -> Any:
+    """
+    Cap a tool result sent back to the model. The result stays in the context for every later
+    round of the turn, so one large result slows down and costs every following LLM call.
+    """
+    try:
+        max_chars = int(max_chars or 0)  # an empty number field can arrive as "" or a float
+    except (TypeError, ValueError):
+        max_chars = 0
+    if max_chars <= 0 or not isinstance(result, str) or len(result) <= max_chars:
+        return result
+    return (
+        f"{result[:max_chars]}\n\n[truncated: showing {max_chars} of {len(result)} characters. "
+        f"Ask for a smaller page or a more specific query if you need the rest.]"
+    )

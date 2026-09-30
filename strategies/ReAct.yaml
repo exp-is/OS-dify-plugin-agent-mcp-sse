@@ -37,7 +37,7 @@ parameters:
   - name: mcp_resources_as_tools
     type: boolean
     required: false
-    default: true
+    default: false
     label:
       en_US: MCP Resources as Tools
       zh_Hans: MCP 资源作为工具
@@ -47,7 +47,7 @@ parameters:
   - name: mcp_prompts_as_tools
     type: boolean
     required: false
-    default: true
+    default: false
     label:
       en_US: MCP Prompts as Tools
       zh_Hans: MCP 提示词作为工具

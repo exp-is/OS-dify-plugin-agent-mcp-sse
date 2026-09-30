@@ -1,5 +1,6 @@
 import time
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from typing import Any, Optional, cast
 
@@ -286,7 +287,25 @@ class FunctionCallingAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, Age
 
             # call tools
             tool_responses = []
-            for tool_call_id, tool_call_name, tool_call_args in tool_calls:
+            # Start this round's MCP tool calls concurrently; results are consumed in order below
+            mcp_futures = {}
+            mcp_calls = [
+                (index, tool_call_name, tool_call_args)
+                for index, (_, tool_call_name, tool_call_args) in enumerate(tool_calls)
+                if tool_call_name in mcp_tool_instances
+            ]
+            mcp_executor = (
+                ThreadPoolExecutor(max_workers=min(len(mcp_calls), 10))
+                if len(mcp_calls) > 1 else None
+            )
+            if mcp_executor:
+                mcp_futures = {
+                    index: mcp_executor.submit(
+                        mcp_clients.execute_tool, tool_name=tool_call_name, tool_args=tool_call_args
+                    )
+                    for index, tool_call_name, tool_call_args in mcp_calls
+                }
+            for index, (tool_call_id, tool_call_name, tool_call_args) in enumerate(tool_calls):
                 current_thoughts.append(
                     AssistantPromptMessage(
                         content="",
@@ -335,10 +354,13 @@ class FunctionCallingAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, Age
                         if mcp_tool_instance:
                             # invoke MCP tool
                             tool_invoke_parameters = tool_call_args
-                            content = mcp_clients.execute_tool(
-                                tool_name=tool_call_name,
-                                tool_args=tool_invoke_parameters,
-                            )
+                            if index in mcp_futures:
+                                content = mcp_futures[index].result()
+                            else:
+                                content = mcp_clients.execute_tool(
+                                    tool_name=tool_call_name,
+                                    tool_args=tool_invoke_parameters,
+                                )
                             if len(content) == 1:
                                 item = content[0]
                                 if item["type"] == "text":
@@ -415,6 +437,9 @@ class FunctionCallingAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, Age
                             name=tool_call_name,
                         )
                     )
+
+            if mcp_executor:
+                mcp_executor.shutdown(wait=False)
 
             # update prompt tool
             for prompt_tool in prompt_messages_tools:

@@ -54,6 +54,16 @@ parameters:
     help:
       en_US: "Fetch and call the preset MCP Prompts as Tools."
       zh_Hans: "将预设的 MCP Prompts 作为 Tools 返回和调用。"
+  - name: record_actions_in_answer
+    type: boolean
+    required: false
+    default: false
+    label:
+      en_US: Record Actions in Answer
+      zh_Hans: 在回答中记录操作
+    help:
+      en_US: "Append a collapsed list of the actions performed (tools other than list_/get_/search_… reads, with ✓/✗) to the final answer. Conversation memory only keeps answer text, so this lets later turns see which actions already happened and not repeat them."
+      zh_Hans: "在最终回答末尾附加已执行操作的折叠列表（除 list_/get_/search_ 等只读工具外，含 ✓/✗）。会话记忆只保留回答文本，这样后续轮次能看到已执行的操作，避免重复执行。"
   - name: instruction
     type: string
     required: false

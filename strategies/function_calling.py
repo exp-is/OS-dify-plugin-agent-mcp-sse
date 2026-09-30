@@ -35,7 +35,10 @@ from pydantic import BaseModel
 
 from strategies.base import (
     FilterHistoryMessageByModelFeaturesMixin,
+    build_actions_summary,
     build_execution_metadata,
+    format_action,
+    is_tool_error,
 )
 from utils.mcp_client import McpClients
 
@@ -48,6 +51,7 @@ class FunctionCallingParams(BaseModel):
     mcp_servers_config: str | None
     mcp_resources_as_tools: bool = False
     mcp_prompts_as_tools: bool = False
+    record_actions_in_answer: bool = False
     maximum_iterations: int = 3
 
 
@@ -126,6 +130,7 @@ class FunctionCallingAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, Age
         function_call_state = True  # continue to run until there is not any tool call
         llm_usage: dict[str, Optional[LLMUsage]] = {"usage": None}
         final_answer = ""
+        actions: list[str] = []
 
         while function_call_state and iteration_step <= max_iteration_steps:
             # start a new round
@@ -429,6 +434,12 @@ class FunctionCallingAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, Age
                     },
                 )
                 tool_responses.append(tool_response)
+                if fc_params.record_actions_in_answer:
+                    action = format_action(
+                        tool_call_name, tool_call_args, is_tool_error(tool_response["tool_response"])
+                    )
+                    if action:
+                        actions.append(action)
                 if tool_response["tool_response"] is not None:
                     current_thoughts.append(
                         ToolPromptMessage(
@@ -475,6 +486,9 @@ class FunctionCallingAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, Age
                 for resp in tool_responses:
                     yield self.create_text_message(resp["tool_response"])
             iteration_step += 1
+
+        if actions:
+            yield self.create_text_message(build_actions_summary(actions))
 
         # All MCP Client close
         if mcp_clients:

@@ -18,6 +18,8 @@
 - **Tools:** name collisions across servers are resolved correctly, and tool order is deterministic, which helps prompt caching.
 - **Speed:** the Function Calling strategy runs a round's MCP tool calls concurrently.
 - **Defaults:** "MCP Resources as Tools" and "MCP Prompts as Tools" are off by default.
+- **Tool failures:** an MCP result with `isError: true` is now reported to the model as a failed call instead of a normal result.
+- **Record Actions in Answer (opt-in):** adds a collapsed "Actions done" list (✓/✗) to the final answer. Dify's conversation memory keeps only answer text, not tool calls, so without it the agent can't tell on later turns which actions already happened and may repeat them.
 - **Identity:** the plugin is `exp-os/mcp_agent`. It installs alongside the original `junjiem/mcp_see_agent` and does not upgrade it in place, so existing agent nodes must be switched to the new strategy.
 
 

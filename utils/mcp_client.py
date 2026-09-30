@@ -84,8 +84,13 @@ class McpClient(ABC):
         if "error" in response:
             error = response["error"]
             raise Exception(f"{self.name} - MCP Server tools/call error: {error}")
-        content = response.get("result", {}).get("content", [])
+        result = response.get("result", {})
+        content = result.get("content", [])
         logger.debug(f"{self.name} - MCP Server tools/call: {content}")
+        if result.get("isError"):
+            # A tool-level failure (MCP isError), reported like other tool errors
+            text = " ".join(item.get("text", "") for item in content if item.get("type") == "text")
+            raise Exception(f"{self.name} - MCP tool {name!r} failed: {text or content}")
         return content
 
     def list_resources(self) -> list[dict]:

@@ -36,9 +36,34 @@ jobs:
           chmod +x "${RUNNER_TEMP}/dify"
           "${RUNNER_TEMP}/dify" plugin package . -o "${{ steps.meta.outputs.file }}"
 
+      - name: Sign and verify plugin
+        env:
+          DIFY_PLUGIN_SIGNING_PRIVATE_KEY: ${{ secrets.DIFY_PLUGIN_SIGNING_PRIVATE_KEY }}
+          PACKAGE_FILE: ${{ steps.meta.outputs.file }}
+        run: |
+          if [ -z "$DIFY_PLUGIN_SIGNING_PRIVATE_KEY" ]; then
+            echo "::error::Set the DIFY_PLUGIN_SIGNING_PRIVATE_KEY repository secret before releasing."
+            exit 1
+          fi
+
+          umask 077
+          key_dir=$(mktemp -d "${RUNNER_TEMP}/dify-signing.XXXXXX")
+          trap 'rm -rf -- "$key_dir"' EXIT
+          # Dify CLI expects PKCS#1 PEM keys.
+          printf '%s' "$DIFY_PLUGIN_SIGNING_PRIVATE_KEY" |
+            openssl rsa -traditional -out "$key_dir/private.pem"
+          unset DIFY_PLUGIN_SIGNING_PRIVATE_KEY
+          openssl rsa -in "$key_dir/private.pem" -RSAPublicKey_out -out "$key_dir/public.pem"
+
+          "${RUNNER_TEMP}/dify" signature sign "$PACKAGE_FILE" \
+            --private_key "$key_dir/private.pem" --authorized_category community
+          "${RUNNER_TEMP}/dify" signature verify "${PACKAGE_FILE%.difypkg}.signed.difypkg" \
+            --public_key "$key_dir/public.pem"
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
+          PACKAGE_FILE: ${{ steps.meta.outputs.file }}
         run: |
-          gh release create "${GITHUB_REF_NAME}" "${{ steps.meta.outputs.file }}" \
+          gh release create "${GITHUB_REF_NAME}" "$PACKAGE_FILE" "${PACKAGE_FILE%.difypkg}.signed.difypkg" \
             --title "${GITHUB_REF_NAME}" --generate-notes

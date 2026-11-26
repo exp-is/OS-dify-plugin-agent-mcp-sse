@@ -11,10 +11,10 @@ from strategies.function_calling import FunctionCallingAgentStrategy
 class McpToolAllowlistTest(unittest.TestCase):
     def setUp(self):
         self.discovered = [
-            {"name": "list_plans"},
-            {"name": "create_plan"},
-            {"name": "other__list_plans"},
-            {"name": "get_plan"},
+            {"name": "list_documents"},
+            {"name": "create_document"},
+            {"name": "other__list_documents"},
+            {"name": "get_document"},
         ]
         self.filter_tools = FunctionCallingAgentStrategy._filter_mcp_tools
 
@@ -25,18 +25,17 @@ class McpToolAllowlistTest(unittest.TestCase):
 
     def test_keeps_exact_names_in_discovery_order(self):
         self.assertEqual(
-            self.filter_tools(self.discovered, "get_plan, other__list_plans, get_plan"),
-            [{"name": "other__list_plans"}, {"name": "get_plan"}],
+            self.filter_tools(self.discovered, "get_document, other__list_documents, get_document"),
+            [{"name": "other__list_documents"}, {"name": "get_document"}],
         )
 
     def test_typo_cannot_silently_expose_the_full_list(self):
-        with self.assertRaisesRegex(ValueError, "get_plans"):
-            self.filter_tools(self.discovered, "list_plans, get_plans")
+        with self.assertRaisesRegex(ValueError, "get_documents"):
+            self.filter_tools(self.discovered, "list_documents, get_documents")
 
     def test_rejects_empty_entries_in_a_list(self):
         with self.assertRaisesRegex(ValueError, "empty tool name"):
-            self.filter_tools(self.discovered, "list_plans,")
-
+            self.filter_tools(self.discovered, "list_documents,")
 
     @patch("strategies.function_calling.McpClients")
     def test_only_allowlisted_tools_reach_the_model_and_dispatch(self, client_class):
@@ -44,7 +43,7 @@ class McpToolAllowlistTest(unittest.TestCase):
         client.fetch_tools.return_value = [
             {**tool, "inputSchema": {"type": "object"}} for tool in self.discovered
         ]
-        client.execute_tool.return_value = [{"type": "text", "text": "Plans"}]
+        client.execute_tool.return_value = [{"type": "text", "text": "Documents"}]
         session = Mock()
         session.model.llm.invoke.return_value = LLMResult(
             model="test-model",
@@ -57,7 +56,7 @@ class McpToolAllowlistTest(unittest.TestCase):
                         "type": "function",
                         "function": {"name": name, "arguments": "{}"},
                     }
-                    for name in ("list_plans", "create_plan")
+                    for name in ("list_documents", "create_document")
                 ],
             ),
         )
@@ -66,7 +65,7 @@ class McpToolAllowlistTest(unittest.TestCase):
         list(
             strategy._invoke(
                 {
-                    "query": "List my plans",
+                    "query": "List my documents",
                     "instruction": None,
                     "model": {
                         "model": "test-model",
@@ -76,13 +75,13 @@ class McpToolAllowlistTest(unittest.TestCase):
                     },
                     "tools": None,
                     "mcp_servers_config": "{}",
-                    "mcp_allowed_tools": "list_plans",
+                    "mcp_allowed_tools": "list_documents",
                     "maximum_iterations": 1,
                 }
             )
         )
 
         sent_tools = session.model.llm.invoke.call_args.kwargs["tools"]
-        self.assertEqual([tool.name for tool in sent_tools], ["list_plans"])
-        client.execute_tool.assert_called_once_with(tool_name="list_plans", tool_args={})
+        self.assertEqual([tool.name for tool in sent_tools], ["list_documents"])
+        client.execute_tool.assert_called_once_with(tool_name="list_documents", tool_args={})
         client.close.assert_called_once()

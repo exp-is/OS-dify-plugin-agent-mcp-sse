@@ -50,6 +50,7 @@ class FunctionCallingParams(BaseModel):
     model: AgentModelConfig
     tools: list[ToolEntity] | None
     mcp_servers_config: str | None
+    mcp_allowed_tools: str | None = None
     mcp_resources_as_tools: bool = False
     mcp_prompts_as_tools: bool = False
     record_actions_in_answer: bool = False
@@ -105,8 +106,14 @@ class FunctionCallingAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, Age
             except orjson.JSONDecodeError as e:
                 raise ValueError(f"mcp_servers_config must be a valid JSON string: {e}")
             mcp_clients = McpClients(servers_config, mcp_resources_as_tools, mcp_prompts_as_tools)
-            mcp_tools = mcp_clients.fetch_tools()
-            mcp_tool_instances = {tool.get("name"): tool for tool in mcp_tools} if mcp_tools else {}
+            try:
+                mcp_tools = self._filter_mcp_tools(
+                    mcp_clients.fetch_tools(), fc_params.mcp_allowed_tools
+                )
+            except Exception:
+                mcp_clients.close()
+                raise
+            mcp_tool_instances = {tool["name"]: tool for tool in mcp_tools}
 
         # convert tools into ModelRuntime Tool format
         prompt_messages_tools = self._init_prompt_tools(tools)
@@ -624,6 +631,24 @@ class FunctionCallingAgentStrategy(FilterHistoryMessageByModelFeaturesMixin, Age
             # clear messages after the first iteration
             prompt_messages = self._clear_user_prompt_image_messages(prompt_messages)
         return prompt_messages
+
+    @staticmethod
+    def _filter_mcp_tools(tools: list[dict], allowlist: str | None) -> list[dict]:
+        if allowlist is None or not allowlist.strip():
+            return tools
+
+        names = {name.strip() for name in allowlist.split(",")}
+        if "" in names:
+            raise ValueError("MCP tool allowlist contains an empty tool name")
+
+        discovered = {tool["name"] for tool in tools}
+        missing = names - discovered
+        if missing:
+            raise ValueError(
+                f"MCP tool allowlist contains unknown names: {', '.join(sorted(missing))}"
+            )
+
+        return [tool for tool in tools if tool["name"] in names]
 
     @staticmethod
     def _init_prompt_mcp_tools(mcp_tools: list[dict]) -> list[PromptMessageTool]:

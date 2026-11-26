@@ -18,6 +18,7 @@
 - **Tools:** name collisions across servers are resolved correctly, and tool order is deterministic, which helps prompt caching.
 - **Speed:** the Function Calling strategy runs a round's MCP tool calls concurrently.
 - **Defaults:** "MCP Resources as Tools" and "MCP Prompts as Tools" are off by default.
+- **MCP Tool Allowlist (opt-in)** accepts exact, comma-separated MCP tool names in the Function Calling strategy. It filters both the model's tool list and the MCP tools it can invoke. Tool names are matched after discovery and collision handling. Empty settings keep the full list, and unknown names fail with a configuration error.
 - **Tool failures:** an MCP result with `isError: true` is now reported to the model as a failed call instead of a normal result.
 - **Max Tool Result Characters (opt-in):** truncates large tool results with a note, since they stay in the context for every later round of the turn.
 - **Record Actions in Answer (opt-in):** adds a collapsed "Actions done" list (✓/✗) to the final answer. Dify's conversation memory keeps only answer text, not tool calls, so without it the agent can't tell on later turns which actions already happened and may repeat them.
